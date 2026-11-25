@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>找小猫 🐱 Catch the Cats</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    min-height: 100vh;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  /* ========== 顶部信息栏 ========== */
+  #hud {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    flex-wrap: wrap;
+  }
+  .hud-card {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 14px;
+    padding: 8px 18px;
+    text-align: center;
+    backdrop-filter: blur(6px);
+    min-width: 110px;
+  }
+  .hud-card .label { font-size: 12px; opacity: 0.7; letter-spacing: 1px; }
+  .hud-card .value { font-size: 22px; font-weight: 700; }
+  #timerValue.warning { color: #ff5b5b; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 50% { transform: scale(1.15); } }
+
+  /* 进度（找到的小猫图标） */
+  #progressCats { font-size: 20px; letter-spacing: 2px; min-height: 26px; }
+
+  /* ========== 游戏区域 ========== */
+  #stageWrap {
+    position: relative;
+    max-width: 1100px;
+    width: calc(100% - 24px);
+    margin-bottom: 30px;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    background: #000;
+    touch-action: manipulation;
+  }
+  #gameImage { display: block; width: 100%; height: auto; }
+  .cat {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    transition: transform 0.15s;
+    line-height: 1;
+    z-index: 5;
+  }
+  .cat:hover { transform: translate(-50%, -50%) scale(1.12); }
+  .cat.found {
+    pointer-events: none;
+    animation: catFound 0.6s forwards;
+  }
+  @keyframes catFound {
+    0%   { transform: translate(-50%,-50%) scale(1); filter: none; opacity: 1; }
+    40%  { transform: translate(-50%,-50%) scale(1.8) rotate(15deg); filter: drop-shadow(0 0 18px gold); opacity: 1; }
+    100% { transform: translate(-50%,-50%) scale(0) rotate(360deg); opacity: 0; }
+  }
+
+  /* 加分飘字特效 */
+  .score-pop {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: 30px;
+    font-weight: 900;
+    color: #ffd700;
+    text-shadow: 0 0 12px rgba(255, 200, 0, 0.9), 0 2px 4px #000;
+    pointer-events: none;
+    z-index: 20;
+    animation: scorePop 1s ease-out forwards;
+  }
+  @keyframes scorePop {
+    0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.4); }
+    20%  { opacity: 1; transform: translate(-50%,-70%) scale(1.3); }
+    100% { opacity: 0; transform: translate(-50%,-220%) scale(1); }
+  }
+  /* 星星粒子 */
+  .sparkle {
+    position: absolute;
+    pointer-events: none;
+    z-index: 19;
+    font-size: 14px;
+    animation: sparkleFly 0.8s ease-out forwards;
+  }
+  @keyframes sparkleFly {
+    0%   { opacity: 1; transform: translate(0,0) scale(0.5); }
+    100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.4); }
+  }
+
+  /* 点错的惩罚反馈 */
+  .miss {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: 22px;
+    color: #ff5b5b;
+    font-weight: 700;
+    pointer-events: none;
+    z-index: 20;
+    animation: missFade 0.6s ease-out forwards;
+  }
+  @keyframes missFade {
+    0% { opacity: 1; transform: translate(-50%,-50%) scale(1.2); }
+    100% { opacity: 0; transform: translate(-50%,-120%) scale(0.8); }
+  }
+  #stageWrap.shake { animation: shake 0.3s; }
+  @keyframes shake {
+    25% { transform: translateX(-6px); }
+    50% { transform: translateX(6px); }
+    75% { transform: translateX(-4px); }
+  }
+
+  /* ========== 遮罩层（开始 / 过关 / 失败） ========== */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 25, 0.92);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 18px;
+    z-index: 100;
+    text-align: center;
+    padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h1 { font-size: 42px; }
+  #overlay p  { font-size: 17px; opacity: 0.85; line-height: 1.8; max-width: 520px; }
+  .btn {
+    background: linear-gradient(135deg, #ff9a3d, #ff5b8f);
+    border: none;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 14px 42px;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 8px 24px rgba(255, 91, 143, 0.4);
+  }
+  .btn:hover { transform: translateY(-3px) scale(1.03); box-shadow: 0 12px 30px rgba(255, 91, 143, 0.6); }
+  .btn.secondary { background: rgba(255,255,255,0.12); box-shadow: none; }
+  #uploadLabel { display: inline-block; }
+  #fileInput { display: none; }
+
+  /* 默认示例背景提示 */
+  #demoHint { font-size: 13px; opacity: 0.5; }
+
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 99; }
+</style>
+</head>
+<body>
+
+<canvas id="confetti"></canvas>
+
+<!-- 顶部 HUD -->
+<div id="hud">
+  <div class="hud-card"><div class="label">关卡</div><div class="value" id="levelValue">1</div></div>
+  <div class="hud-card"><div class="label">剩余时间</div><div class="value" id="timerValue">60</div></div>
+  <div class="hud-card" style="min-width:200px">
+    <div class="label">本关需找到 <span id="needValue">3</span> 只小猫</div>
+    <div id="progressCats"></div>
+  </div>
+  <div class="hud-card"><div class="label">总积分</div><div class="value" id="scoreValue">0</div></div>
+</div>
+
+<!-- 游戏舞台 -->
+<div id="stageWrap">
+  <img id="gameImage" alt="游戏图片">
+</div>
+
+<!-- 遮罩层 -->
+<div id="overlay">
+  <h1 id="overlayTitle">🐱 找小猫</h1>
+  <p id="overlayText">
+    上传一张图片，小猫会悄悄藏进图里。<br>
+    第 1 关藏 3 只，之后每关小猫更多、藏得更隐蔽！<br>
+    全部找到即可过关，用时越短积分越高，超时则闯关失败。
+  </p>
+  <label id="uploadLabel" class="btn" for="fileInput">📷 上传图片开始游戏</label>
+  <input type="file" id="fileInput" accept="image/*">
+  <div id="demoHint">建议使用细节丰富的照片（房间、公园、桌面…）效果更好</div>
+</div>
+
+<script>
+(() => {
+  // ================= 配置 =================
+  const CAT_EMOJIS = ['🐱', '🐈', '😺', '😸', '🙀', '😻'];
+  const levelConfig = lvl => ({
+    cats: lvl + 2,                                  // 第1关3只，每关+1
+    time: Math.max(20, 60 - (lvl - 1) * 5),         // 时间逐关减少，最低20秒
+    sizeMin: Math.max(14, 34 - lvl * 3),            // 猫越来越小
+    sizeMax: Math.max(22, 48 - lvl * 3),
+    opacityMin: Math.max(0.25, 0.95 - lvl * 0.12),  // 越来越透明
+    opacityMax: Math.max(0.45, 1.0 - lvl * 0.08),
+    rotate: lvl >= 2,                               // 第2关起随机旋转
+    blend: lvl >= 4,                                // 第4关起混合模式更隐蔽
+  });
+
+  // ================= 状态 =================
+  let level = 1, score = 0, found = 0, cfg = null;
+  let timeLeft = 0, timerId = null, playing = false;
+
+  const $ = id => document.getElementById(id);
+  const stageWrap = $('stageWrap'), gameImage = $('gameImage');
+  const overlay = $('overlay'), overlayTitle = $('overlayTitle'), overlayText = $('overlayText');
+  const uploadLabel = $('uploadLabel'), demoHint = $('demoHint');
+
+  // ================= 上传图片 =================
+  $('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      gameImage.src = ev.target.result;
+      gameImage.onload = () => {
+        overlay.classList.add('hidden');
+        startLevel(1);
+      };
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // ================= 关卡流程 =================
+  function startLevel(lvl) {
+    level = lvl;
+    cfg = levelConfig(lvl);
+    found = 0;
+    score = lvl === 1 ? 0 : score;
+    clearCats();
+    spawnCats();
+    updateHUD();
+    startTimer(cfg.time);
+    playing = true;
+  }
+
+  function clearCats() {
+    stageWrap.querySelectorAll('.cat, .score-pop, .sparkle, .miss').forEach(el => el.remove());
+  }
+
+  function spawnCats() {
+    const w = stageWrap.clientWidth, h = stageWrap.clientHeight;
+    const placed = [];
+    for (let i = 0; i < cfg.cats; i++) {
+      const el = document.createElement('div');
+      el.className = 'cat';
+      el.textContent = CAT_EMOJIS[Math.floor(Math.random() * CAT_EMOJIS.length)];
+
+      const size = rand(cfg.sizeMin, cfg.sizeMax);
+      const opacity = rand(cfg.opacityMin, cfg.opacityMax);
+      el.style.fontSize = size + 'px';
+      el.style.opacity = opacity;
+
+      // 位置：避免重叠（最多尝试100次）
+      let x, y, tries = 0;
+      do {
+        x = rand(4, 96); y = rand(4, 96);
+        tries++;
+      } while (tries < 100 && placed.some(p => Math.hypot(p.x - x, p.y - y) < 10));
+      placed.push({ x, y });
+      el.style.left = x + '%';
+      el.style.top = y + '%';
+
+      if (cfg.rotate) el.style.transform += ` rotate(${rand(-40, 40)}deg)`;
+      if (cfg.blend && Math.random() < 0.5) el.style.mixBlendMode = 'luminosity';
+
+      el.addEventListener('click', ev => {
+        ev.stopPropagation();
+        onCatFound(el);
+      });
+      stageWrap.appendChild(el);
+    }
+  }
+
+  function onCatFound(el) {
+    if (!playing || el.classList.contains('found')) return;
+    el.classList.add('found');
+    found++;
+
+    const pts = 100;
+    score += pts;
+    showScorePop(el, pts);
+    showSparkles(el);
+    updateHUD();
+
+    if (found >= cfg.cats) {
+      playing = false;
+      clearInterval(timerId);
+      const bonus = timeLeft * 10;            // 剩余时间奖励：每秒10分
+      score += bonus;
+      updateHUD();
+      setTimeout(() => levelComplete(bonus), 700);
+    }
+  }
+
+  function levelComplete(bonus) {
+    fireConfetti();
+    showOverlay(
+      `🎉 第 ${level} 关通过！`,
+      `全部小猫都找到了！<br>时间奖励 <b style="color:#ffd700">+${bonus}</b> 分<br>当前总积分：<b style="color:#ffd700">${score}</b> 分<br><br>下一关：${level + 3} 只小猫，藏得更隐蔽……`,
+      `进入第 ${level + 1} 关 ▶`,
+      () => { overlay.classList.add('hidden'); startLevel(level + 1); }
+    );
+  }
+
+  function gameOver() {
+    playing = false;
+    showOverlay(
+      `⏰ 时间到！闯关失败`,
+      `你找到了 ${found} / ${cfg.cats} 只小猫。<br>最终积分：<b style="color:#ffd700">${score}</b> 分<br>再接再厉，小猫还在等你！`,
+      `🔄 重新挑战`,
+      () => { overlay.classList.add('hidden'); startLevel(1); },
+      true
+    );
+  }
+
+  // ================= 计时器 =================
+  function startTimer(seconds) {
+    clearInterval(timerId);
+    timeLeft = seconds;
+    $('timerValue').textContent = timeLeft;
+    $('timerValue').classList.toggle('warning', timeLeft <= 10);
+    timerId = setInterval(() => {
+      timeLeft--;
+      $('timerValue').textContent = timeLeft;
+      $('timerValue').classList.toggle('warning', timeLeft <= 10);
+      if (timeLeft <= 0) {
+        clearInterval(timerId);
+        gameOver();
+      }
+    }, 1000);
+  }
+
+  // ================= HUD =================
+  function updateHUD() {
+    $('levelValue').textContent = level;
+    $('needValue').textContent = cfg.cats;
+    $('scoreValue').textContent = score;
+    $('progressCats').innerHTML =
+      '🐾'.repeat(found) + '<span style="opacity:0.25">' + '🐾'.repeat(cfg.cats - found) + '</span>';
+  }
+
+  // ================= 特效 =================
+  function stagePos(el) {
+    const r = el.getBoundingClientRect(), s = stageWrap.getBoundingClientRect();
+    return { x: r.left - s.left + r.width / 2, y: r.top - s.top + r.height / 2 };
+  }
+
+  function showScorePop(el, pts) {
+    const { x, y } = stagePos(el);
+    const pop = document.createElement('div');
+    pop.className = 'score-pop';
+    pop.textContent = '+' + pts;
+    pop.style.left = x + 'px';
+    pop.style.top = y + 'px';
+    stageWrap.appendChild(pop);
+    setTimeout(() => pop.remove(), 1000);
+  }
+
+  function showSparkles(el) {
+    const { x, y } = stagePos(el);
+    for (let i = 0; i < 8; i++) {
+      const s = document.createElement('div');
+      s.className = 'sparkle';
+      s.textContent = ['✨', '⭐', '💫'][i % 3];
+      const angle = (Math.PI * 2 * i) / 8;
+      s.style.setProperty('--dx', Math.cos(angle) * rand(40, 80) + 'px');
+      s.style.setProperty('--dy', Math.sin(angle) * rand(40, 80) + 'px');
+      s.style.left = x + 'px';
+      s.style.top = y + 'px';
+      stageWrap.appendChild(s);
+      setTimeout(() => s.remove(), 800);
+    }
+  }
+
+  // 点空：轻微惩罚反馈
+  stageWrap.addEventListener('click', e => {
+    if (!playing || e.target !== gameImage) return;
+    const s = stageWrap.getBoundingClientRect();
+    const miss = document.createElement('div');
+    miss.className = 'miss';
+    miss.textContent = '✖';
+    miss.style.left = (e.clientX - s.left) + 'px';
+    miss.style.top = (e.clientY - s.top) + 'px';
+    stageWrap.appendChild(miss);
+    setTimeout(() => miss.remove(), 600);
+    stageWrap.classList.add('shake');
+    setTimeout(() => stageWrap.classList.remove('shake'), 300);
+  });
+
+  // ================= 五彩纸屑 =================
+  const confettiCanvas = $('confetti'), ctx = confettiCanvas.getContext('2d');
+  function fireConfetti() {
+    confettiCanvas.width = innerWidth;
+    confettiCanvas.height = innerHeight;
+    const pieces = Array.from({ length: 120 }, () => ({
+      x: Math.random() * innerWidth, y: -20 - Math.random() * innerHeight / 2,
+      w: rand(6, 12), h: rand(8, 16),
+      color: `hsl(${Math.random() * 360}, 90%, 60%)`,
+      vy: rand(2, 5), vx: rand(-1.5, 1.5), rot: Math.random() * 360, vr: rand(-6, 6),
+    }));
+    let frames = 0;
+    (function tick() {
+      ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+      pieces.forEach(p => {
+        p.y += p.vy; p.x += p.vx; p.rot += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      if (++frames < 180) requestAnimationFrame(tick);
+      else ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    })();
+  }
+
+  // ================= 工具 =================
+  function showOverlay(title, html, btnText, onClick, isFail = false) {
+    overlayTitle.textContent = title;
+    overlayText.innerHTML = html;
+    uploadLabel.textContent = btnText;
+    uploadLabel.removeAttribute('for');
+    uploadLabel.onclick = onClick;
+    demoHint.textContent = isFail ? '提示：小猫可能很小、很透明，仔细看角落和暗处！' : '';
+    overlay.classList.remove('hidden');
+  }
+
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+})();
+</script>
+</body>
+</html>
